@@ -1,6 +1,6 @@
 // AniNeko SUB + DUB Module
 // Scrapes anineko.to — parses embed URLs directly from page HTML
-// Providers: vivibebe.site (HD-1), bibiemb.xyz (HD-2)
+// HD-1: vivibebe.site — HD-2: morning-credit-3bcc.vibevibe.workers.dev
 
 // ==========================================
 // SORA FETCH WRAPPER
@@ -27,52 +27,29 @@ async function getText(res) {
 }
 
 // ==========================================
-// EMBED PAGE M3U8 EXTRACTOR
-// Fetches embed page and pulls master.m3u8 from const src = "..."
-// Works for both vivibebe.site and bibiemb.xyz
+// URL BUILDERS
+// vivibebe HD-1: construct directly from videoId
+// bibiemb HD-2: worker URL uses the full bibiemb path ID
 // ==========================================
 
-async function getEmbedStream(embedUrl, fallbackId) {
-    try {
-        var res = await soraFetch(embedUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0',
-                'Referer': 'https://anineko.to/'
-            }
-        });
-        var html = await getText(res);
+function buildHD1Url(videoId) {
+    return 'https://vivibebe.site/public/stream/' + videoId + '/master.m3u8';
+}
 
-        // Try const/var/let assignment with master.m3u8
-        var srcMatch = html.match(/(?:const|var|let)\s+\w+\s*=\s*["']([^"']+master\.m3u8[^"']*)["']/);
-        if (!srcMatch) {
-            // Fallback: any quoted master.m3u8 URL in the page
-            srcMatch = html.match(/["'](https?:\/\/[^"']+master\.m3u8)["']/);
-        }
-        if (srcMatch) {
-            console.log('[AniNeko v1.0.3] embed src: ' + srcMatch[1]);
-            return srcMatch[1];
-        }
-
-        var fallback = 'https://vivibebe.site/public/stream/' + fallbackId + '/master.m3u8';
-        console.log('[AniNeko v1.0.3] fallback: ' + fallback);
-        return fallback;
-    } catch(e) {
-        console.log('[AniNeko v1.0.3] getEmbedStream err (' + embedUrl + '): ' + e.message);
-        return 'https://vivibebe.site/public/stream/' + fallbackId + '/master.m3u8';
-    }
+function buildHD2Url(bibiembId) {
+    return 'https://morning-credit-3bcc.vibevibe.workers.dev/' + bibiembId + '/master.m3u8';
 }
 
 // ==========================================
 // SUBTITLE NORMALIZER
-// bibiemb ?sub_e= gives a relative path, vivibebe ?sub= gives full URL
+// vivibebe ?sub= gives full URL
+// bibiemb ?sub_e= gives relative path — prepend CDN
 // ==========================================
 
 function normalizeVtt(raw) {
     if (!raw) return '';
     var decoded = decodeURIComponent(raw);
-    // Already a full URL
     if (decoded.indexOf('http') === 0) return decoded;
-    // Relative path — prepend anizara CDN
     return 'https://cdn.anizara.store/' + decoded;
 }
 
@@ -150,7 +127,7 @@ async function extractEpisodes(url) {
 
 async function extractStreamUrl(url) {
     try {
-        console.log('[AniNeko v1.0.3] fetchEp: ' + url);
+        console.log('[AniNeko v1.0.4] fetchEp: ' + url);
 
         var res = await soraFetch(url, {
             headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://anineko.to/' }
@@ -166,65 +143,65 @@ async function extractStreamUrl(url) {
             var panelContent = pm[2];
             if (serversByType[panelType]) continue;
 
-            // vivibebe HD-1: ?sub= gives full VTT URL
-            var vv = panelContent.match(/data-video="(https:\/\/vivibebe\.site\/([^?"]+)(?:\?sub=([^"]+))?)"/);
-            // bibiemb HD-2: ?sub_e= gives relative VTT path or no param for hsub
-            var bb = panelContent.match(/data-video="(https:\/\/bibiemb\.xyz\/([^?"]+)(?:\?sub(?:_e)?=([^"&]+))?[^"]*)"/);
+            // vivibebe HD-1: videoId is the path segment after vivibebe.site/
+            var vv = panelContent.match(/data-video="https:\/\/vivibebe\.site\/([^?"]+)(?:\?sub=([^"]+))?"/);
+            // bibiemb HD-2: bibiembId is the full path segment (ag...h format)
+            var bb = panelContent.match(/data-video="https:\/\/bibiemb\.xyz\/(ag[^?"]+)(?:\?sub(?:_e)?=([^"&]+))?[^"]*"/);
 
             serversByType[panelType] = {
                 hd1: vv ? {
-                    embedUrl: vv[1].split('?')[0],
-                    videoId: vv[2],
-                    subVtt: normalizeVtt(vv[3] || '')
+                    streamUrl: buildHD1Url(vv[1]),
+                    subVtt: normalizeVtt(vv[2] || '')
                 } : null,
                 hd2: bb ? {
-                    embedUrl: bb[1].split('?')[0],
-                    videoId: bb[2],
-                    subVtt: normalizeVtt(bb[3] || '')
+                    streamUrl: buildHD2Url(bb[1]),
+                    subVtt: normalizeVtt(bb[2] || '')
                 } : null
             };
         }
 
-        console.log('[AniNeko v1.0.3] panels: ' + Object.keys(serversByType).join(','));
-
-        // Build parallel fetch tasks: SUB HD-1, SUB HD-2, DUB HD-1, DUB HD-2, HSUB HD-1, HSUB HD-2
-        var tasks = [];
-        var order = ['sub', 'dub', 'hsub'];
-        for (var i = 0; i < order.length; i++) {
-            var type = order[i];
-            var panel = serversByType[type];
-            if (!panel) continue;
-            if (panel.hd1) tasks.push({ type: type, server: 'HD-1', info: panel.hd1 });
-            if (panel.hd2) tasks.push({ type: type, server: 'HD-2', info: panel.hd2 });
-        }
-
-        var m3u8Results = await Promise.all(tasks.map(function(t) {
-            return getEmbedStream(t.info.embedUrl, t.info.videoId);
-        }));
+        console.log('[AniNeko v1.0.4] panels: ' + Object.keys(serversByType).join(','));
 
         var streams = [];
         var subtitles = '';
         var allSubtitles = [];
 
-        for (var j = 0; j < tasks.length; j++) {
-            var task = tasks[j];
-            var m3u8Url = m3u8Results[j];
-            var typeLabel = task.type === 'sub' ? 'SUB' : (task.type === 'dub' ? 'DUB' : 'HSUB');
+        var order = ['sub', 'dub', 'hsub'];
+        for (var i = 0; i < order.length; i++) {
+            var type = order[i];
+            var panel = serversByType[type];
+            if (!panel) continue;
+            var typeLabel = type === 'sub' ? 'SUB' : (type === 'dub' ? 'DUB' : 'HSUB');
 
-            streams.push({
-                title: typeLabel + ' - ' + task.server,
-                streamUrl: m3u8Url,
-                headers: { 'Referer': 'https://anineko.to/', 'Origin': 'https://anineko.to' }
-            });
+            if (panel.hd1) {
+                console.log('[AniNeko v1.0.4] ' + typeLabel + ' HD-1: ' + panel.hd1.streamUrl);
+                streams.push({
+                    title: typeLabel + ' - HD-1',
+                    streamUrl: panel.hd1.streamUrl,
+                    headers: { 'Referer': 'https://anineko.to/', 'Origin': 'https://anineko.to' }
+                });
+                if (panel.hd1.subVtt && !subtitles) {
+                    subtitles = panel.hd1.subVtt;
+                    allSubtitles.push({ file: panel.hd1.subVtt, label: 'English', kind: 'captions' });
+                }
+            }
 
-            if (task.info.subVtt && !subtitles) {
-                subtitles = task.info.subVtt;
-                allSubtitles.push({ file: task.info.subVtt, label: 'English', kind: 'captions' });
+            if (panel.hd2) {
+                console.log('[AniNeko v1.0.4] ' + typeLabel + ' HD-2: ' + panel.hd2.streamUrl);
+                streams.push({
+                    title: typeLabel + ' - HD-2',
+                    streamUrl: panel.hd2.streamUrl,
+                    headers: { 'Referer': 'https://anineko.to/', 'Origin': 'https://anineko.to' }
+                });
+                if (panel.hd2.subVtt && !subtitles) {
+                    subtitles = panel.hd2.subVtt;
+                    allSubtitles.push({ file: panel.hd2.subVtt, label: 'English', kind: 'captions' });
+                }
             }
         }
 
         if (streams.length === 0) {
-            console.log('[AniNeko v1.0.3] No streams found for: ' + url);
+            console.log('[AniNeko v1.0.4] No streams found for: ' + url);
         }
 
         return JSON.stringify({
@@ -235,7 +212,7 @@ async function extractStreamUrl(url) {
         });
 
     } catch(e) {
-        console.log('[AniNeko v1.0.3] extractStreamUrl error: ' + e.message);
+        console.log('[AniNeko v1.0.4] error: ' + e.message);
         return JSON.stringify({ streams: [], subtitles: '', subtitlesHeaders: {}, allSubtitles: [] });
     }
 }
