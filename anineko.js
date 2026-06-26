@@ -165,7 +165,7 @@ async function extractStreamUrl(url) {
             if (panel.hd1) {
                 console.log('[AniNeko v1.0.5] ' + typeLabel + ' HD-1: ' + panel.hd1.streamUrl);
                 streams.push({
-                    title: typeLabel + ' - HD-1',
+                    title: typeLabel + ' - HD 1',
                     streamUrl: panel.hd1.streamUrl,
                     headers: { 'Referer': 'https://anineko.to/', 'Origin': 'https://anineko.to' }
                 });
@@ -178,7 +178,7 @@ async function extractStreamUrl(url) {
             if (panel.hd2) {
                 console.log('[AniNeko v1.0.5] ' + typeLabel + ' HD-2: ' + panel.hd2.streamUrl);
                 streams.push({
-                    title: typeLabel + ' - HD-2',
+                    title: typeLabel + ' - HD 2',
                     streamUrl: panel.hd2.streamUrl,
                     headers: { 'Referer': 'https://anineko.to/', 'Origin': 'https://anineko.to' }
                 });
