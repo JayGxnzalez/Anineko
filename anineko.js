@@ -42,7 +42,12 @@ async function getEmbedStream(embedUrl, fallbackId) {
         });
         var html = await getText(res);
 
-        var srcMatch = html.match(/const src\s*=\s*"([^"]+master\.m3u8[^"]*)"/);
+        // Try const/var/let assignment with master.m3u8
+        var srcMatch = html.match(/(?:const|var|let)\s+\w+\s*=\s*["']([^"']+master\.m3u8[^"']*)["']/);
+        if (!srcMatch) {
+            // Fallback: any quoted master.m3u8 URL in the page
+            srcMatch = html.match(/["'](https?:\/\/[^"']+master\.m3u8)["']/);
+        }
         if (srcMatch) {
             console.log('[AniNeko v1.0.3] embed src: ' + srcMatch[1]);
             return srcMatch[1];
@@ -52,7 +57,7 @@ async function getEmbedStream(embedUrl, fallbackId) {
         console.log('[AniNeko v1.0.3] fallback: ' + fallback);
         return fallback;
     } catch(e) {
-        console.log('[AniNeko v1.0.3] getEmbedStream error: ' + e.message);
+        console.log('[AniNeko v1.0.3] getEmbedStream err (' + embedUrl + '): ' + e.message);
         return 'https://vivibebe.site/public/stream/' + fallbackId + '/master.m3u8';
     }
 }
