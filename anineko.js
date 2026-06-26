@@ -28,8 +28,6 @@ async function getText(res) {
 
 // ==========================================
 // URL BUILDERS
-// vivibebe HD-1: construct directly from videoId
-// bibiemb HD-2: worker URL uses the full bibiemb path ID
 // ==========================================
 
 function buildHD1Url(videoId) {
@@ -39,12 +37,6 @@ function buildHD1Url(videoId) {
 function buildHD2Url(bibiembId) {
     return 'https://morning-credit-3bcc.vibevibe.workers.dev/' + bibiembId + '/master.m3u8';
 }
-
-// ==========================================
-// SUBTITLE NORMALIZER
-// vivibebe ?sub= gives full URL
-// bibiemb ?sub_e= gives relative path — prepend CDN
-// ==========================================
 
 function normalizeVtt(raw) {
     if (!raw) return '';
@@ -127,40 +119,37 @@ async function extractEpisodes(url) {
 
 async function extractStreamUrl(url) {
     try {
-        console.log('[AniNeko v1.0.4] fetchEp: ' + url);
+        console.log('[AniNeko v1.0.5] fetchEp: ' + url);
 
         var res = await soraFetch(url, {
             headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://anineko.to/' }
         });
         var html = await getText(res);
 
-        // Parse HD-1 (vivibebe) and HD-2 (bibiemb) per lang panel
-        var serversByType = {};
-        var panelRe = /data-id="(sub|dub|hsub)">([\s\S]*?)(?=<div[^>]*data-id="|<\/div>\s*<\/div>\s*<\/div>|$)/g;
+        // Split HTML by lang-group panel opening tags to get panel content slices
+        var panelOpenRe = /<div[^>]*class="[^"]*lang-group[^"]*"[^>]*data-id="(sub|dub|hsub)">/g;
+        var positions = [];
         var pm;
-        while ((pm = panelRe.exec(html)) !== null) {
-            var panelType = pm[1];
-            var panelContent = pm[2];
-            if (serversByType[panelType]) continue;
+        while ((pm = panelOpenRe.exec(html)) !== null) {
+            positions.push({ type: pm[1], start: pm.index + pm[0].length });
+        }
 
-            // vivibebe HD-1: videoId is the path segment after vivibebe.site/
-            var vv = panelContent.match(/data-video="https:\/\/vivibebe\.site\/([^?"]+)(?:\?sub=([^"]+))?"/);
-            // bibiemb HD-2: bibiembId is the full path segment (ag...h format)
-            var bb = panelContent.match(/data-video="https:\/\/bibiemb\.xyz\/(ag[^?"]+)(?:\?sub(?:_e)?=([^"&]+))?[^"]*"/);
+        var serversByType = {};
+        for (var i = 0; i < positions.length; i++) {
+            var end = i + 1 < positions.length ? positions[i + 1].start : html.length;
+            var content = html.substring(positions[i].start, end);
+            var panelType = positions[i].type;
+
+            var vv = content.match(/data-video="https:\/\/vivibebe\.site\/([^?"]+)(?:\?sub=([^"]+))?"/);
+            var bb = content.match(/data-video="https:\/\/bibiemb\.xyz\/(ag[^?"]+)(?:\?sub(?:_e)?=([^"&]+))?/);
 
             serversByType[panelType] = {
-                hd1: vv ? {
-                    streamUrl: buildHD1Url(vv[1]),
-                    subVtt: normalizeVtt(vv[2] || '')
-                } : null,
-                hd2: bb ? {
-                    streamUrl: buildHD2Url(bb[1]),
-                    subVtt: normalizeVtt(bb[2] || '')
-                } : null
+                hd1: vv ? { streamUrl: buildHD1Url(vv[1]), subVtt: normalizeVtt(vv[2] || '') } : null,
+                hd2: bb ? { streamUrl: buildHD2Url(bb[1]), subVtt: normalizeVtt(bb[2] || '') } : null
             };
         }
 
-        console.log('[AniNeko v1.0.4] panels: ' + Object.keys(serversByType).join(','));
+        console.log('[AniNeko v1.0.5] panels: ' + Object.keys(serversByType).join(','));
 
         var streams = [];
         var subtitles = '';
@@ -174,7 +163,7 @@ async function extractStreamUrl(url) {
             var typeLabel = type === 'sub' ? 'SUB' : (type === 'dub' ? 'DUB' : 'HSUB');
 
             if (panel.hd1) {
-                console.log('[AniNeko v1.0.4] ' + typeLabel + ' HD-1: ' + panel.hd1.streamUrl);
+                console.log('[AniNeko v1.0.5] ' + typeLabel + ' HD-1: ' + panel.hd1.streamUrl);
                 streams.push({
                     title: typeLabel + ' - HD-1',
                     streamUrl: panel.hd1.streamUrl,
@@ -187,7 +176,7 @@ async function extractStreamUrl(url) {
             }
 
             if (panel.hd2) {
-                console.log('[AniNeko v1.0.4] ' + typeLabel + ' HD-2: ' + panel.hd2.streamUrl);
+                console.log('[AniNeko v1.0.5] ' + typeLabel + ' HD-2: ' + panel.hd2.streamUrl);
                 streams.push({
                     title: typeLabel + ' - HD-2',
                     streamUrl: panel.hd2.streamUrl,
@@ -201,7 +190,7 @@ async function extractStreamUrl(url) {
         }
 
         if (streams.length === 0) {
-            console.log('[AniNeko v1.0.4] No streams found for: ' + url);
+            console.log('[AniNeko v1.0.5] No streams found for: ' + url);
         }
 
         return JSON.stringify({
@@ -212,7 +201,7 @@ async function extractStreamUrl(url) {
         });
 
     } catch(e) {
-        console.log('[AniNeko v1.0.4] error: ' + e.message);
+        console.log('[AniNeko v1.0.5] error: ' + e.message);
         return JSON.stringify({ streams: [], subtitles: '', subtitlesHeaders: {}, allSubtitles: [] });
     }
 }
