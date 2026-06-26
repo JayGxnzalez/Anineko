@@ -117,7 +117,7 @@ async function extractEpisodes(url) {
 
 async function extractStreamUrl(url) {
     try {
-        console.log('[AniNeko v1.0.0] fetchEp: ' + url);
+        console.log('[AniNeko v1.0.1] fetchEp: ' + url);
 
         var res = await soraFetch(url, {
             headers: {
@@ -127,65 +127,61 @@ async function extractStreamUrl(url) {
         });
         var html = await getText(res);
 
-        // Parse first vivibebe data-video URL from a lang panel section
-        // Returns { videoId, subVtt }
-        function parseVivibebeFromPanel(panelHtml) {
-            var m = panelHtml.match(/data-video="(https:\/\/vivibebe\.site\/([^?"]+)(?:\?sub=([^"]+))?)"/);
-            if (!m) return null;
-            return {
-                videoId: m[2],
-                subVtt: m[3] ? decodeURIComponent(m[3]) : ''
-            };
-        }
-
-        var subPanel = html.match(/data-id="sub">([\s\S]*?)(?=<div[^>]*lang-group[^>]*data-id="dub"|$)/);
-        var dubPanel = html.match(/data-id="dub">([\s\S]*?)(?=<\/div>\s*<\/div>|$)/);
-
-        var subInfo = subPanel ? parseVivibebeFromPanel(subPanel[1]) : null;
-        var dubInfo = dubPanel ? parseVivibebeFromPanel(dubPanel[1]) : null;
-
-        var streams = [];
-        var subtitles = '';
-        var subtitlesHeaders = {};
-        var allSubtitles = [];
-
-        if (subInfo && subInfo.videoId) {
-            streams.push({
-                title: 'SUB - HD1',
-                streamUrl: 'https://vivibebe.site/public/stream/' + subInfo.videoId + '/master.m3u8',
-                headers: { 'Referer': 'https://vivibebe.site/', 'Origin': 'https://vivibebe.site' }
-            });
-            if (subInfo.subVtt && !subtitles) {
-                subtitles = subInfo.subVtt;
-                allSubtitles.push({ file: subInfo.subVtt, label: 'English', kind: 'captions' });
+        // Scan all lang panels (sub, dub, hsub) for vivibebe servers
+        // Returns first vivibebe entry per panel type
+        var serversByType = {};
+        var panelRe = /data-id="(sub|dub|hsub)">([\s\S]*?)(?=<div[^>]*data-id="|<\/div>\s*<\/div>\s*<\/div>|$)/g;
+        var pm;
+        while ((pm = panelRe.exec(html)) !== null) {
+            var panelType = pm[1];
+            var panelContent = pm[2];
+            if (serversByType[panelType]) continue; // already got one
+            var vv = panelContent.match(/data-video="(https:\/\/vivibebe\.site\/([^?"]+)(?:\?sub=([^"]+))?)"/);
+            if (vv) {
+                serversByType[panelType] = {
+                    videoId: vv[2],
+                    subVtt: vv[3] ? decodeURIComponent(vv[3]) : ''
+                };
             }
         }
 
-        if (dubInfo && dubInfo.videoId) {
+        console.log('[AniNeko v1.0.1] panels found: ' + Object.keys(serversByType).join(','));
+
+        var streams = [];
+        var subtitles = '';
+        var allSubtitles = [];
+
+        // Prefer sub, then dub — add both if available
+        var order = ['sub', 'dub', 'hsub'];
+        for (var i = 0; i < order.length; i++) {
+            var type = order[i];
+            var info = serversByType[type];
+            if (!info) continue;
+            var label = type === 'sub' ? 'SUB - HD1' : (type === 'dub' ? 'DUB - HD1' : 'HSUB - HD1');
             streams.push({
-                title: 'DUB - HD1',
-                streamUrl: 'https://vivibebe.site/public/stream/' + dubInfo.videoId + '/master.m3u8',
+                title: label,
+                streamUrl: 'https://vivibebe.site/public/stream/' + info.videoId + '/master.m3u8',
                 headers: { 'Referer': 'https://vivibebe.site/', 'Origin': 'https://vivibebe.site' }
             });
-            if (dubInfo.subVtt && !subtitles) {
-                subtitles = dubInfo.subVtt;
-                allSubtitles.push({ file: dubInfo.subVtt, label: 'English', kind: 'captions' });
+            if (info.subVtt && !subtitles) {
+                subtitles = info.subVtt;
+                allSubtitles.push({ file: info.subVtt, label: 'English', kind: 'captions' });
             }
         }
 
         if (streams.length === 0) {
-            console.log('[AniNeko v1.0.0] No streams found for: ' + url);
+            console.log('[AniNeko v1.0.1] No vivibebe streams found for: ' + url);
         }
 
         return JSON.stringify({
             streams: streams,
             subtitles: subtitles,
-            subtitlesHeaders: subtitlesHeaders,
+            subtitlesHeaders: {},
             allSubtitles: allSubtitles
         });
 
     } catch(e) {
-        console.log('[AniNeko v1.0.0] extractStreamUrl error: ' + e.message);
+        console.log('[AniNeko v1.0.1] extractStreamUrl error: ' + e.message);
         return JSON.stringify({ streams: [], subtitles: '', subtitlesHeaders: {}, allSubtitles: [] });
     }
 }
