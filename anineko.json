@@ -14,7 +14,7 @@
   "searchBaseUrl": "https://anineko.to/browser?keyword=%s",
   "scriptUrl": "https://raw.githubusercontent.com/JayGxnzalez/AniNeko/refs/heads/main/anineko.js",
   "type": "anime",
-  "downloadSupport": false,
+  "downloadSupport": true,
   "asyncJS": true,
   "softsub": true
 }
